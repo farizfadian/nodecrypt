@@ -20,7 +20,7 @@ Status      : ✅ PUBLISHED & TESTED (v1.0.0)
 Install     : npm i nodecrypt-jasypt
 Registry    : npm (npmjs.com/package/nodecrypt-jasypt)
 Release     : Auto-publish via GitHub Actions on tag push (v*)
-Token       : NPM_TOKEN in GitHub Secrets (✅ Active, expires 13 Juni 2026 — RENEW!)
+Auth        : OIDC Trusted Publishing (no token, no rotation) — see "Publishing / Authentication"
 ```
 
 ---
@@ -56,7 +56,7 @@ nodecrypt/
 │   └── config-loader.test.ts   # Config loader tests
 ├── .github/workflows/
 │   ├── ci.yml              # Test on Node 18/20/22 x Ubuntu/macOS/Windows
-│   └── release.yml         # npm publish on tag push (needs NPM_TOKEN secret)
+│   └── release.yml         # npm publish on tag push (via OIDC trusted publishing, no token)
 ├── package.json            # nodecrypt-jasypt, engines: >=18
 ├── tsconfig.json           # target: ES2020, strict: true
 ├── tsup.config.ts          # Build CJS + ESM + DTS
@@ -191,8 +191,10 @@ DES-CBC has NO integrity check (unlike AES-GCM). Decrypting with wrong password 
 ### 2. Node 16 Dropped from CI
 Node 16 is EOL (Sep 2023) and crashes with `--openssl-legacy-provider` flag. CI now tests Node 18/20/22 only. `package.json` engines set to `>=18.0.0`.
 
-### 3. NPM Publish Requires Secret
-Release workflow needs `NPM_TOKEN` secret configured in GitHub repo settings.
+### 3. NPM Publish Uses OIDC Trusted Publishing (No Token)
+Publishing is authenticated via **OIDC trusted publishing** — there is **NO `NPM_TOKEN` secret**.
+npm verifies a short-lived, workflow-specific identity issued by GitHub Actions instead of a
+stored token. See the "Publishing / Authentication" section below for the full setup.
 
 ---
 
@@ -206,9 +208,10 @@ Release workflow needs `NPM_TOKEN` secret configured in GitHub repo settings.
 ### Release (release.yml)
 - Triggered on `v*` tag push
 - Runs tests on Node 20 + ubuntu
-- Publishes to npm (`npm publish --access public`)
+- Publishes to npm (`npm publish --access public`) via **OIDC trusted publishing**
 - Creates GitHub Release
-- Requires: `NPM_TOKEN` secret
+- Requires: `id-token: write` permission + npm >= 11.5.1 on the runner (NO token/secret)
+- Provenance attestation is generated automatically
 
 ---
 
@@ -222,6 +225,42 @@ tsup builds two formats:
 
 ---
 
+## 🔐 Publishing / Authentication (OIDC Trusted Publishing)
+
+NodeCrypt publishes to npm using **OIDC trusted publishing** — there is **no `NPM_TOKEN`** and
+nothing to rotate. (Migrated from token-based auth on 13 June 2026; the old `NPM_TOKEN` secret
+and the 90-day renewal reminder are obsolete.)
+
+### How it works
+- On a `v*` tag push, GitHub Actions requests a short-lived OIDC identity token.
+- That token proves "this is workflow `release.yml` from repo `farizfadian/nodecrypt`".
+- npm trusts that identity (configured as a Trusted Publisher) and allows the publish.
+- No long-lived secret is stored anywhere; the credential lives only for that single job.
+
+### npm side (one-time, already configured)
+npmjs.com/package/nodecrypt-jasypt/access → **Trusted Publisher** → GitHub Actions:
+- Organization/user : `farizfadian`
+- Repository        : `nodecrypt`
+- Workflow filename : `release.yml`
+- Environment       : (none)
+- Allowed actions   : `npm publish`
+
+### Workflow side (release.yml)
+The `release` job MUST have these permissions:
+```yaml
+permissions:
+  contents: write   # for the "Create GitHub Release" step
+  id-token: write   # REQUIRED for OIDC trusted publishing
+```
+…plus npm upgraded to >= 11.5.1 on the runner (`npm install -g npm@latest`) and a plain
+`npm publish --access public` with **no** `NODE_AUTH_TOKEN` / `secrets.NPM_TOKEN`.
+Provenance is published automatically (no `--provenance` flag needed).
+
+### Gotchas
+- Trusted Publisher fields are case-sensitive and must match the workflow exactly (org, repo, filename).
+- `package.json` `repository.url` must match the GitHub repo URL.
+- Trusted-publisher configs created after 20 May 2026 must explicitly select at least one allowed action.
+
 ---
 
 ## 📦 Publish & Release Status
@@ -231,15 +270,20 @@ tsup builds two formats:
 | Published | ✅ v1.0.0 on npm |
 | Install | `npm i nodecrypt-jasypt` |
 | CI | ✅ GitHub Actions (Node 18/20/22, multi-OS) |
-| Release | ✅ Auto-publish on `git tag v*` + `git push origin v*` |
-| Token | NPM_TOKEN in GitHub Secrets (✅ Active, **expires 13 Juni 2026** — RENEW!) |
+| Release | ✅ Auto-publish on `git tag v*` + push |
+| Auth | ✅ OIDC Trusted Publishing (no token, no 90-day rotation) |
 | Cross-language tested | ✅ Encrypt in Node → Decrypt in Go/Python/PHP/Java |
 
 ### How to release a new version:
 ```bash
-git tag v1.x.x
-git push origin v1.x.x
-# GitHub Actions auto-publishes to npm
+# 1. Bump version (creates a commit + matching vX.Y.Z tag)
+npm version patch        # or: minor / major
+
+# 2. Push the commit and the tag
+git push origin main --follow-tags
+
+# GitHub Actions (release.yml) then publishes to npm automatically via OIDC.
+# No token needed — authentication is handled by OIDC trusted publishing.
 ```
 
 ---
