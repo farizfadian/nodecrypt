@@ -16,6 +16,11 @@ License     : MIT
 Package     : nodecrypt-jasypt (npm)
 Dependencies: ZERO (uses Node.js built-in crypto)
 Created     : December 2024
+Status      : ✅ PUBLISHED & TESTED (v1.0.0)
+Install     : npm i nodecrypt-jasypt
+Registry    : npm (npmjs.com/package/nodecrypt-jasypt)
+Release     : Auto-publish via GitHub Actions on tag push (v*)
+Token       : NPM_TOKEN in GitHub Secrets (✅ Active, expires 13 Juni 2026 — RENEW!)
 ```
 
 ---
@@ -214,6 +219,35 @@ tsup builds two formats:
 - `dist/index.mjs` (ESM)
 - `dist/index.d.ts` (TypeScript declarations)
 - `dist/cli.js` (CLI binary entry point)
+
+---
+
+---
+
+## 📦 Publish & Release Status
+
+| Item | Status |
+|------|--------|
+| Published | ✅ v1.0.0 on npm |
+| Install | `npm i nodecrypt-jasypt` |
+| CI | ✅ GitHub Actions (Node 18/20/22, multi-OS) |
+| Release | ✅ Auto-publish on `git tag v*` + `git push origin v*` |
+| Token | NPM_TOKEN in GitHub Secrets (✅ Active, **expires 13 Juni 2026** — RENEW!) |
+| Cross-language tested | ✅ Encrypt in Node → Decrypt in Go/Python/PHP/Java |
+
+### How to release a new version:
+```bash
+git tag v1.x.x
+git push origin v1.x.x
+# GitHub Actions auto-publishes to npm
+```
+
+---
+
+## 📋 Full Context Reference
+
+For complete cross-language context, see:
+`C:\Users\Fariz Fadian\Documents\Fariz\PRIVATE\JASYPT-MULTI-LANGUAGE-CONTEXT.md`
 
 ---
 
