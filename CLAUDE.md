@@ -138,7 +138,7 @@ import {
   ENC_SUFFIX,
 } from 'nodecrypt-jasypt';
 
-// Jasypt compatible (for BizCore / cross-language)
+// Jasypt compatible (for Java / cross-language)
 const enc = new JasyptEncryptor(password);
 const encrypted = enc.encryptWithPrefix(plaintext);   // ENC(...)
 const plaintext = enc.decryptPrefixed('ENC(...)');
