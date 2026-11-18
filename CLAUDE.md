@@ -273,13 +273,19 @@ and the 90-day renewal reminder are obsolete.)
 - npm trusts that identity (configured as a Trusted Publisher) and allows the publish.
 - No long-lived secret is stored anywhere; the credential lives only for that single job.
 
-### npm side (one-time, already configured)
+### npm side (configured, status **Valid** since 19 Nov 2026)
 npmjs.com/package/nodecrypt-jasypt/access → **Trusted Publisher** → GitHub Actions:
 - Organization/user : `farizfadian`
 - Repository        : `nodecrypt`
 - Workflow filename : `release.yml`
 - Environment       : (none)
-- Allowed actions   : `npm publish`
+- Allowed actions   : `Allow npm publish` checked, `Allow npm dist-tag` unchecked (`npm stage publish` is
+  always allowed). npm marks direct publish "Not recommended" and suggests staged publishing. Switching would mean
+  `npm stage publish` in release.yml plus a manual 2FA approval on npmjs.com for every release.
+
+The first config (created 13 Jun 2026) expired unused and was recreated on 19 Nov 2026; v1.0.1 was the first OIDC
+publish and validated it. Changing org, repo or workflow filename later means deleting the entry and creating a new
+one, which then has to publish within 2 days (see Gotchas).
 
 ### Workflow side (release.yml)
 The `release` job MUST have these permissions:
@@ -301,6 +307,19 @@ Provenance is published automatically (no `--provenance` flag needed).
 - Trusted Publisher fields are case-sensitive and must match the workflow exactly (org, repo, filename).
 - `package.json` `repository.url` must match the GitHub repo URL.
 - Trusted-publisher configs created after 20 May 2026 must explicitly select at least one allowed action.
+- **A new trusted-publisher config must publish successfully within 2 days, or it expires** (status "Expired";
+  it can no longer be edited; delete it and create a new one). Create or recreate it only when a release is ready to
+  go out the same day.
+- **`E404 Not Found - PUT .../nodecrypt-jasypt` on publish means OIDC failed.** npm then silently falls back to the
+  placeholder `NODE_AUTH_TOKEN` (`XXXXX-...`) that `setup-node` writes. Check the Trusted Publisher status on npmjs.com
+  first. A job re-run is enough once the config is fixed, because the workflow file itself was not the problem.
+- `npm warn publish "bin[nodecrypt]" script name dist/cli.js was invalid and removed` shows up with npm 11 (locally
+  too), but the v1.0.1 tarball still contains `bin` and the `nodecrypt` shim installs. Verify from the registry rather
+  than trusting the warning.
+- Right after a publish, `npm view` / `npm install pkg@<new>` can report `notarget` for a few minutes (CDN-cached
+  metadata). `https://registry.npmjs.org/nodecrypt-jasypt/<version>` updates first. When testing in a scratch folder
+  under the home directory, check that `require.resolve('nodecrypt-jasypt')` points into that folder; otherwise Node
+  may resolve a copy from a `node_modules` further up.
 
 ---
 
