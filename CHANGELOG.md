@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.0.1] - Unreleased
+## [1.0.1] - 2026-11-19
 
 ### Fixed
 - **`JasyptEncryptor` explains the missing legacy provider.** On Node.js 17+ without `--openssl-legacy-provider`,

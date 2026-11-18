@@ -1,6 +1,6 @@
 {
   "name": "nodecrypt-jasypt",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Jasypt-like encryption library for Node.js - Encrypt your configuration with ENC(...) pattern",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

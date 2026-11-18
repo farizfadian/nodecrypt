@@ -16,7 +16,7 @@ License     : MIT
 Package     : nodecrypt-jasypt (npm)
 Dependencies: ZERO (uses Node.js built-in crypto)
 Created     : December 2024
-Status      : ✅ PUBLISHED & TESTED (v1.0.0)
+Status      : ✅ PUBLISHED & TESTED (v1.0.1)
 Install     : npm i nodecrypt-jasypt
 Registry    : npm (npmjs.com/package/nodecrypt-jasypt)
 Release     : Auto-publish via GitHub Actions on tag push (v*)
@@ -303,7 +303,7 @@ Provenance is published automatically (no `--provenance` flag needed).
 
 | Item | Status |
 |------|--------|
-| Published | ✅ v1.0.0 on npm |
+| Published | ✅ v1.0.1 on npm (1.0.0 on 2024-12-28, 1.0.1 on 2026-11-19) |
 | Install | `npm i nodecrypt-jasypt` |
 | CI | ✅ GitHub Actions (Node 18/20/22, multi-OS) |
 | Release | ✅ Auto-publish on `git tag v*` + push |
