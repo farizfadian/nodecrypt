@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.1] - Unreleased
+
+### Fixed
+- **`JasyptEncryptor` explains the missing legacy provider.** On Node.js 17+ without `--openssl-legacy-provider`,
+  errors now say how to enable DES instead of only `error:0308010C:digital envelope routines::unsupported`. The
+  error keeps code `ERR_OSSL_EVP_UNSUPPORTED`.
+- **`JasyptEncryptor.decryptMap()` and `decryptAllInString()` throw that error** instead of silently returning every
+  `ENC(...)` value unchanged. Other decrypt failures still keep the original value, as before.
+- **CLI:** `nodecrypt version` now reports the package version (it was hard-coded to `1.0.0`), and error output no
+  longer starts with `Error: Error:`.
+
+### Documentation
+- **Corrected: `JasyptStrongEncryptor` is not compatible with Java Jasypt.** Verified against Jasypt 1.9.3: Java uses
+  `salt ‖ random IV ‖ ciphertext`, while this library (like GoCrypt/PyCrypt/PHPCrypt/RustCrypt) derives the IV from
+  PBKDF2 and writes `salt ‖ ciphertext`. It remains compatible within the family. Use `JasyptEncryptor` for Java.
+- README: new section on `--openssl-legacy-provider`, a corrected compatibility matrix, and a note that `ConfigLoader`
+  decrypts only `Encryptor` values and keeps undecryptable values as `ENC(...)`.
+
+### Tests
+- `JasyptEncryptor` decrypts values produced by Java Jasypt 1.9.3 (fixed vectors, including unicode).
+- Legacy-provider error message, error code, and `decryptMap()`/`decryptAllInString()` propagation.
+
+---
+
 ## [1.0.0] - 2024-12-28
 
 ### 🎉 Initial Release

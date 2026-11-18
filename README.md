@@ -16,11 +16,11 @@
 If you're coming from Java/Spring Boot world and need to share encrypted configuration across multiple languages, NodeCrypt is for you! It provides:
 
 - ✅ **Familiar `ENC(...)` pattern** - Just like Jasypt in Spring Boot
-- ✅ **Java Jasypt compatibility** - Decrypt values encrypted by Java
+- ✅ **Java Jasypt compatibility** - `JasyptEncryptor` (PBEWithMD5AndDES) reads and writes values Java Jasypt can use
 - ✅ **TypeScript support** - Full type definitions included
 - ✅ **Multiple algorithms** - From legacy Jasypt to modern AES-256-GCM
 - ✅ **CLI tool included** - Encrypt/decrypt from command line
-- ✅ **Cross-platform** - Works with GoCrypt, PyCrypt, RustCrypt, and Java Jasypt
+- ✅ **Cross-platform** - Works with GoCrypt, PyCrypt, PHPCrypt, RustCrypt, and Java Jasypt (see the compatibility matrix below)
 
 ---
 
@@ -29,6 +29,35 @@ If you're coming from Java/Spring Boot world and need to share encrypted configu
 ```bash
 npm install nodecrypt-jasypt
 ```
+
+### Node.js 17+ and `JasyptEncryptor` (DES)
+
+`JasyptEncryptor` uses DES (PBEWithMD5AndDES). OpenSSL 3, which ships with Node.js 17 and later, disables DES by
+default, so start Node.js with `--openssl-legacy-provider`:
+
+```bash
+node --openssl-legacy-provider app.js
+```
+
+Or set it once for every Node.js process started from the current shell:
+
+```bash
+# macOS / Linux
+export NODE_OPTIONS=--openssl-legacy-provider
+```
+
+```bat
+:: Windows cmd
+set NODE_OPTIONS=--openssl-legacy-provider
+```
+
+```powershell
+# Windows PowerShell
+$env:NODE_OPTIONS = "--openssl-legacy-provider"
+```
+
+Without the flag, `JasyptEncryptor` throws an error that tells you to add it (error code `ERR_OSSL_EVP_UNSUPPORTED`).
+`Encryptor` and `JasyptStrongEncryptor` do not need the flag.
 
 ---
 
@@ -73,8 +102,8 @@ console.log(config.DATABASE_PASSWORD); // actual_password
 | Encryptor | Algorithm | Security | Use Case |
 |-----------|-----------|----------|----------|
 | `Encryptor` | AES-256-GCM | ⭐⭐⭐⭐⭐ | **Recommended** for new projects |
-| `JasyptStrongEncryptor` | PBEWithHmacSHA256AndAES_256 | ⭐⭐⭐⭐ | Jasypt strong compatibility |
-| `JasyptEncryptor` | PBEWithMD5AndDES | ⭐⭐ | Legacy Jasypt compatibility |
+| `JasyptStrongEncryptor` | PBEWithHmacSHA256AndAES_256 (family layout) | ⭐⭐⭐⭐ | Sharing with GoCrypt/PyCrypt/PHPCrypt/RustCrypt, **not** Java Jasypt |
+| `JasyptEncryptor` | PBEWithMD5AndDES | ⭐⭐ | Java Jasypt compatibility (legacy algorithm) |
 
 ### Choose the Right Algorithm
 
@@ -84,10 +113,10 @@ import { Encryptor, JasyptEncryptor, JasyptStrongEncryptor } from 'nodecrypt-jas
 // RECOMMENDED: For new Node.js projects
 const enc = new Encryptor(password);
 
-// For compatibility with Java Jasypt (default algorithm)
+// For compatibility with Java Jasypt (default algorithm; Node.js 17+ needs --openssl-legacy-provider)
 const enc = new JasyptEncryptor(password);
 
-// For compatibility with Java Jasypt (strong encryption)
+// Stronger, for sharing with GoCrypt/PyCrypt/PHPCrypt/RustCrypt only (Java Jasypt cannot read it)
 const enc = new JasyptStrongEncryptor(password);
 ```
 
@@ -102,15 +131,28 @@ const enc = new JasyptStrongEncryptor(password);
 │            ENCRYPT WITH → DECRYPT WITH                          │
 ├─────────────────────────────────────────────────────────────────┤
 │ Java Jasypt (default)  → JasyptEncryptor        ✅ YES          │
-│ Java Jasypt (strong)   → JasyptStrongEncryptor  ✅ YES          │
+│ JasyptEncryptor        → Java Jasypt            ✅ YES          │
+│ Java Jasypt (strong)   → JasyptStrongEncryptor  ❌ NO (1)       │
+│ JasyptStrongEncryptor  → Java Jasypt (strong)   ❌ NO (1)       │
 │ Java Jasypt (default)  → Encryptor              ❌ NO           │
 │ Encryptor              → Java Jasypt            ❌ NO           │
-│ JasyptEncryptor        → Java Jasypt            ✅ YES          │
 │ GoCrypt JasyptEnc      → JasyptEncryptor        ✅ YES          │
 │ PyCrypt JasyptEnc      → JasyptEncryptor        ✅ YES          │
 │ RustCrypt JasyptEnc    → JasyptEncryptor        ✅ YES          │
+│ GoCrypt JasyptStrong   → JasyptStrongEncryptor  ✅ YES          │
+│ GoCrypt Encryptor      → Encryptor              ✅ YES          │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+Each GoCrypt row works in both directions and was checked with the GoCrypt CLI. PyCrypt, PHPCrypt and RustCrypt are
+designed to use the same byte layouts as GoCrypt for the same class names.
+
+**(1)** `JasyptStrongEncryptor` uses the family layout `base64(salt ‖ ciphertext)`, with the IV derived from PBKDF2.
+Java Jasypt's `PBEWITHHMACSHA256ANDAES_256` (which needs an IV generator, normally `RandomIvGenerator`) writes
+`base64(salt ‖ random IV ‖ ciphertext)`. Both use the same key derivation, but their layouts differ, so neither can
+read the other's values. Decrypting a Java value with `JasyptStrongEncryptor` can even return corrupted text instead
+of throwing an error. To share values with Java, use `JasyptEncryptor`. Changing to Java's layout would have to be a
+coordinated change across all five family libraries.
 
 ### Decrypt Values from Java
 
@@ -162,6 +204,23 @@ const loader = new ConfigLoader(password);
 const config = loader.loadEnvFile('config.env');
 console.log(config.DATABASE_PASSWORD); // decrypted value
 ```
+
+> **`ConfigLoader` only decrypts `Encryptor` (AES-256-GCM) values.** It does not decrypt values made by
+> `JasyptEncryptor`, `JasyptStrongEncryptor` or Java Jasypt. A value it cannot decrypt (including when the
+> password is wrong) stays as the literal `ENC(...)` string, and no error is thrown. To fail fast:
+>
+> ```typescript
+> import { isEncrypted } from 'nodecrypt-jasypt';
+>
+> const config = loader.loadEnvFile('config.env');
+> const notDecrypted = Object.keys(config).filter((key) => isEncrypted(config[key]));
+> if (notDecrypted.length > 0) {
+>   throw new Error(`Could not decrypt: ${notDecrypted.join(', ')}`);
+> }
+> ```
+>
+> For Jasypt values, parse the file yourself and use `new JasyptEncryptor(password).decryptPrefixed(value)`, which
+> throws on failure.
 
 #### JSON File
 
@@ -220,8 +279,9 @@ nodecrypt encrypt-file -p mySecret -i .env.plain -o .env.encrypted
 # Decrypt all values in a file
 nodecrypt decrypt-file -p mySecret -i .env.encrypted -o .env.plain
 
-# Use Jasypt-compatible algorithm
-nodecrypt encrypt -p mySecret -v "secret" --jasypt
+# Use Jasypt-compatible algorithm (DES: Node.js 17+ needs the legacy provider;
+# on Windows, set NODE_OPTIONS first as shown under Installation)
+NODE_OPTIONS=--openssl-legacy-provider nodecrypt encrypt -p mySecret -v "secret" --jasypt
 
 # Use environment variable for password
 export NODECRYPT_PASSWORD=mySecret
