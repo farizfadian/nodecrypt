@@ -18,7 +18,13 @@ import { JasyptEncryptor, JasyptStrongEncryptor } from './jasypt-compat';
 import { isEncrypted } from './utils';
 import * as fs from 'fs';
 
-const VERSION = '1.0.0';
+// Replaced at build time with the version in package.json (see tsup.config.ts).
+declare const __NODECRYPT_VERSION__: string;
+const VERSION = __NODECRYPT_VERSION__;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 interface Args {
   command?: string;
@@ -127,8 +133,10 @@ Options:
   -i, --input       Input file path
   -o, --output      Output file path
   --no-prefix       Don't wrap encrypted value with ENC(...)
-  --jasypt          Use Jasypt-compatible algorithm (PBEWithMD5AndDES)
-  --jasypt-strong   Use Jasypt strong algorithm (PBEWithHmacSHA256AndAES_256)
+  --jasypt          Use Java Jasypt-compatible PBEWithMD5AndDES
+                    (Node.js 17+ needs --openssl-legacy-provider, see NODE_OPTIONS below)
+  --jasypt-strong   Use the family's PBEWithHmacSHA256AndAES_256 layout
+                    (GoCrypt/PyCrypt/PHPCrypt/RustCrypt; NOT readable by Java Jasypt)
 
 Examples:
   # Encrypt a database password
@@ -145,6 +153,7 @@ Examples:
 
 Environment Variables:
   NODECRYPT_PASSWORD  Password for encryption/decryption
+  NODE_OPTIONS        Set to --openssl-legacy-provider to enable DES (--jasypt) on Node.js 17+
 `);
 }
 
@@ -172,7 +181,7 @@ function cmdEncrypt(args: Args): void {
 
     console.log(result);
   } catch (error) {
-    console.error(`Error: ${error}`);
+    console.error(`Error: ${errorMessage(error)}`);
     process.exit(1);
   }
 }
@@ -201,7 +210,7 @@ function cmdDecrypt(args: Args): void {
 
     console.log(result);
   } catch (error) {
-    console.error(`Error: ${error}`);
+    console.error(`Error: ${errorMessage(error)}`);
     process.exit(1);
   }
 }
@@ -253,7 +262,7 @@ function cmdEncryptFile(args: Args): void {
       console.log(output);
     }
   } catch (error) {
-    console.error(`Error: ${error}`);
+    console.error(`Error: ${errorMessage(error)}`);
     process.exit(1);
   }
 }
@@ -281,7 +290,7 @@ function cmdDecryptFile(args: Args): void {
       console.log(decrypted);
     }
   } catch (error) {
-    console.error(`Error: ${error}`);
+    console.error(`Error: ${errorMessage(error)}`);
     process.exit(1);
   }
 }

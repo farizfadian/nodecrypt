@@ -1,3 +1,4 @@
+import nodeCrypto = require('crypto');
 import { JasyptEncryptor, JasyptStrongEncryptor } from '../src/jasypt-compat';
 import { isEncrypted } from '../src/utils';
 
@@ -135,6 +136,83 @@ describe('JasyptEncryptor', () => {
       const decrypted = enc.decrypt(encrypted);
 
       expect(decrypted).toBe(plaintext);
+    });
+  });
+
+  describe('values produced by Java Jasypt 1.9.3', () => {
+    // Generated with org.jasypt:jasypt:1.9.3 StandardPBEStringEncryptor defaults
+    // (PBEWithMD5AndDES, 1000 iterations, no IV generator), password 'mySecretPassword'.
+    const JAVA_VECTORS = [
+      { plain: 'db_password123', ct: '+LGHNsNjMivOnB5dCYuuvuorhULNBlEp' },
+      { plain: 'héllo wörld 日本 🔐', ct: 'NIQI1amR45BzeChD0e3IpSqEjVylwWP9W1Nefub8MZJqLJ4zdrOLVw==' },
+    ];
+
+    it.each(JAVA_VECTORS)('should decrypt the Java value of "$plain"', ({ plain, ct }) => {
+      const enc = new JasyptEncryptor('mySecretPassword');
+
+      expect(enc.decrypt(ct)).toBe(plain);
+      expect(enc.decryptPrefixed(`ENC(${ct})`)).toBe(plain);
+    });
+  });
+
+  describe('when DES is unavailable (OpenSSL 3 without --openssl-legacy-provider)', () => {
+    const unsupported = (): never => {
+      throw Object.assign(new Error('error:0308010C:digital envelope routines::unsupported'), {
+        code: 'ERR_OSSL_EVP_UNSUPPORTED',
+      });
+    };
+    let valid: string;
+
+    beforeAll(() => {
+      valid = new JasyptEncryptor('pw').encryptWithPrefix('secret');
+    });
+
+    beforeEach(() => {
+      jest.spyOn(nodeCrypto, 'createCipheriv').mockImplementation(unsupported);
+      jest.spyOn(nodeCrypto, 'createDecipheriv').mockImplementation(unsupported);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    const expectLegacyProviderHint = (fn: () => unknown): void => {
+      let caught: unknown;
+      try {
+        fn();
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as Error).message).toContain('--openssl-legacy-provider');
+      expect((caught as NodeJS.ErrnoException).code).toBe('ERR_OSSL_EVP_UNSUPPORTED');
+    };
+
+    it('encrypt should explain how to enable DES', () => {
+      expectLegacyProviderHint(() => new JasyptEncryptor('pw').encrypt('secret'));
+    });
+
+    it('decryptPrefixed should explain how to enable DES', () => {
+      expectLegacyProviderHint(() => new JasyptEncryptor('pw').decryptPrefixed(valid));
+    });
+
+    it('decryptMap should throw instead of silently returning ENC(...)', () => {
+      expectLegacyProviderHint(() => new JasyptEncryptor('pw').decryptMap({ password: valid }));
+    });
+
+    it('decryptAllInString should throw instead of silently returning ENC(...)', () => {
+      expectLegacyProviderHint(() => new JasyptEncryptor('pw').decryptAllInString(`password=${valid}`));
+    });
+  });
+
+  describe('decryptMap with undecryptable data', () => {
+    it('should still keep the original value when the data itself is invalid', () => {
+      const enc = new JasyptEncryptor('pw');
+
+      expect(enc.decryptMap({ password: 'ENC(notvalid)', host: 'h' })).toEqual({
+        password: 'ENC(notvalid)',
+        host: 'h',
+      });
     });
   });
 });

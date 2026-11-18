@@ -1,12 +1,42 @@
 /**
- * Jasypt-compatible encryption module.
+ * Jasypt-style encryption module.
  *
- * This module provides compatibility with Java Jasypt library,
- * allowing Node.js to decrypt values encrypted by Java and vice versa.
+ * - `JasyptEncryptor` (PBEWithMD5AndDES) is byte-compatible with Java Jasypt in both directions.
+ * - `JasyptStrongEncryptor` uses the layout shared by GoCrypt/PyCrypt/PHPCrypt/RustCrypt,
+ *   which is NOT the layout Java Jasypt uses for PBEWITHHMACSHA256ANDAES_256.
  */
 
 import * as crypto from 'crypto';
 import { ENC_PREFIX, ENC_SUFFIX, ENC_PATTERN, isEncrypted } from './utils';
+
+/** Error code Node.js reports when OpenSSL 3 refuses a legacy cipher such as DES. */
+const OPENSSL_UNSUPPORTED = 'ERR_OSSL_EVP_UNSUPPORTED';
+
+function isLegacyProviderError(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === OPENSSL_UNSUPPORTED;
+}
+
+/**
+ * Run a DES cipher factory. OpenSSL 3 (Node.js 17+) disables DES unless Node.js starts with
+ * --openssl-legacy-provider, and its own error ("digital envelope routines::unsupported")
+ * does not say so. Rethrow with the fix in the message, keeping the original error code.
+ */
+function withLegacyProviderHint<T>(create: () => T): T {
+  try {
+    return create();
+  } catch (error) {
+    if (!isLegacyProviderError(error)) {
+      throw error;
+    }
+    const hint = new Error(
+      'PBEWithMD5AndDES needs DES, which OpenSSL 3 disables by default in Node.js 17+. ' +
+        'Start Node.js with --openssl-legacy-provider, or set NODE_OPTIONS=--openssl-legacy-provider. ' +
+        `(OpenSSL: ${(error as Error).message})`
+    ) as NodeJS.ErrnoException;
+    hint.code = OPENSSL_UNSUPPORTED;
+    throw hint;
+  }
+}
 
 export interface JasyptEncryptorOptions {
   /** Key derivation iteration count (default: 1000) */
@@ -95,7 +125,7 @@ export class JasyptEncryptor {
     const { key, iv } = this.deriveKeyAndIv(salt);
 
     // Create DES cipher in CBC mode
-    const cipher = crypto.createCipheriv('des-cbc', key, iv);
+    const cipher = withLegacyProviderHint(() => crypto.createCipheriv('des-cbc', key, iv));
 
     // Encrypt with PKCS5 padding (Node.js does this automatically)
     const encrypted = Buffer.concat([
@@ -149,7 +179,7 @@ export class JasyptEncryptor {
       const { key, iv } = this.deriveKeyAndIv(salt);
 
       // Decrypt
-      const decipher = crypto.createDecipheriv('des-cbc', key, iv);
+      const decipher = withLegacyProviderHint(() => crypto.createDecipheriv('des-cbc', key, iv));
       const decrypted = Buffer.concat([
         decipher.update(ciphertext),
         decipher.final(),
@@ -157,6 +187,9 @@ export class JasyptEncryptor {
 
       return decrypted.toString('utf-8');
     } catch (error) {
+      if (isLegacyProviderError(error)) {
+        throw error;
+      }
       throw new Error(`Decryption failed: ${error}`);
     }
   }
@@ -177,12 +210,19 @@ export class JasyptEncryptor {
 
   /**
    * Decrypt all ENC(...) values in a string.
+   *
+   * Values that cannot be decrypted are left unchanged, except when DES itself is
+   * unavailable (missing --openssl-legacy-provider): that error is thrown, because
+   * no value could be decrypted.
    */
   decryptAllInString(input: string): string {
     return input.replace(ENC_PATTERN, (match) => {
       try {
         return this.decryptPrefixed(match);
-      } catch {
+      } catch (error) {
+        if (isLegacyProviderError(error)) {
+          throw error;
+        }
         return match;
       }
     });
@@ -190,6 +230,10 @@ export class JasyptEncryptor {
 
   /**
    * Decrypt all ENC(...) values in an object.
+   *
+   * Values that cannot be decrypted are left unchanged, except when DES itself is
+   * unavailable (missing --openssl-legacy-provider): that error is thrown, because
+   * no value could be decrypted.
    */
   decryptMap(config: Record<string, string>): Record<string, string> {
     const result: Record<string, string> = {};
@@ -198,7 +242,10 @@ export class JasyptEncryptor {
       if (isEncrypted(value)) {
         try {
           result[key] = this.decryptPrefixed(value);
-        } catch {
+        } catch (error) {
+          if (isLegacyProviderError(error)) {
+            throw error;
+          }
           result[key] = value;
         }
       } else {
@@ -211,7 +258,7 @@ export class JasyptEncryptor {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// PBEWithHmacSHA256AndAES_256 - Stronger Jasypt Algorithm
+// PBEWithHmacSHA256AndAES_256 - family layout (NOT Java Jasypt's layout)
 // ════════════════════════════════════════════════════════════════════════════
 
 export interface JasyptStrongEncryptorOptions {
@@ -222,10 +269,14 @@ export interface JasyptStrongEncryptorOptions {
 }
 
 /**
- * Jasypt-compatible encryptor using PBEWithHmacSHA256AndAES_256.
+ * PBKDF2-HMAC-SHA256 + AES-256-CBC encryptor in the family's "PBEWithHmacSHA256AndAES_256" layout.
  *
- * This is a stronger algorithm compared to the default PBEWithMD5AndDES.
- * Use this when Java uses Jasypt's strong encryption.
+ * Stronger than PBEWithMD5AndDES, and readable by GoCrypt, PyCrypt, PHPCrypt and RustCrypt.
+ *
+ * NOT compatible with Java Jasypt. This class derives the IV from PBKDF2 and writes
+ * `base64(salt ‖ ciphertext)`. Java Jasypt's PBEWITHHMACSHA256ANDAES_256 (with RandomIvGenerator)
+ * writes `base64(salt ‖ random IV ‖ ciphertext)`. Decrypting a Java value with this class can
+ * return corrupted text instead of throwing. To share values with Java, use `JasyptEncryptor`.
  *
  * @example
  * ```typescript
