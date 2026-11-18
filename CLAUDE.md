@@ -288,11 +288,16 @@ permissions:
   contents: write   # for the "Create GitHub Release" step
   id-token: write   # REQUIRED for OIDC trusted publishing
 ```
-…plus npm upgraded to >= 11.5.1 on the runner (`npm install -g npm@latest`) and a plain
+…plus npm upgraded to >= 11.5.1 on the runner (`npm install -g npm@11`) and a plain
 `npm publish --access public` with **no** `NODE_AUTH_TOKEN` / `secrets.NPM_TOKEN`.
 Provenance is published automatically (no `--provenance` flag needed).
 
 ### Gotchas
+- Do not use `npm install -g npm@latest` in release.yml. The release job runs Node 20, and npm 12+ requires
+  Node ^22.22.2 || ^24.15.0, so the step fails with `EBADENGINE` before publishing (this broke the first v1.0.1 run on
+  19 Nov 2026). Keep npm pinned to major 11, or raise the job's Node version and the npm pin together.
+- A tag push runs the release.yml **from the tagged commit**. Re-running a failed release does not pick up a workflow
+  fix; the tag must point at a commit that contains the fix.
 - Trusted Publisher fields are case-sensitive and must match the workflow exactly (org, repo, filename).
 - `package.json` `repository.url` must match the GitHub repo URL.
 - Trusted-publisher configs created after 20 May 2026 must explicitly select at least one allowed action.

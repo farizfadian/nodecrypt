@@ -56,7 +56,9 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Update npm (OIDC butuh >= 11.5.1)
-        run: npm install -g npm@latest
+        # Pin major 11 (>= 11.5.1 for OIDC). npm@latest (12+) requires Node ^22.22.2 || ^24.15.0,
+        # so it fails with EBADENGINE on this job's Node 20.
+        run: npm install -g npm@11
 
       - name: Get version from tag
         id: get_version
