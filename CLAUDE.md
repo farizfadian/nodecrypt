@@ -72,7 +72,7 @@ nodecrypt/
 |-------|-----------|------------------|-------------|
 | `Encryptor` | AES-256-GCM | NO | New Node.js-only projects |
 | `JasyptEncryptor` | PBEWithMD5AndDES | YES | Cross-language config sharing |
-| `JasyptStrongEncryptor` | PBEWithHmacSHA256AndAES_256 | YES | Jasypt strong mode |
+| `JasyptStrongEncryptor` | PBEWithHmacSHA256AndAES_256 (family layout) | **NO** (see Known Issue 4) | Sharing with GoCrypt/PyCrypt/PHPCrypt/RustCrypt |
 
 ### Constructor Signatures
 
@@ -83,7 +83,7 @@ new Encryptor(password: string, options?: { iterations?: number, saltSize?: numb
 // Jasypt default (Java compatible) - PBEWithMD5AndDES
 new JasyptEncryptor(password: string, options?: { iterations?: number })
 
-// Jasypt strong (Java compatible) - AES-256-CBC with PBKDF2
+// Family "strong" layout (NOT Java compatible) - AES-256-CBC with PBKDF2, IV derived
 new JasyptStrongEncryptor(password: string, options?: { iterations?: number, saltSize?: number })
 ```
 
@@ -177,6 +177,18 @@ env:
   NODE_OPTIONS: --openssl-legacy-provider
 ```
 
+### Error Message Without the Flag (since 1.0.1)
+OpenSSL's own error (`error:0308010C:digital envelope routines::unsupported`) does not mention the flag.
+`src/jasypt-compat.ts` (`withLegacyProviderHint`) rethrows it with the fix in the message and keeps
+`code = 'ERR_OSSL_EVP_UNSUPPORTED'`. `decryptMap()` and `decryptAllInString()` rethrow this one error instead of
+swallowing it, because no value can be decrypted without DES. Other decrypt errors are still swallowed (value kept).
+
+### Gotcha: Running a Single Jest File
+`jest.config.js` sets `NODE_OPTIONS` after the main jest process has started, and OpenSSL reads providers only at
+process start. `npm test` (two files) runs tests in fresh workers, which inherit the flag. `npx jest <one file>`
+runs in-band in the main process, so every DES test fails with `0308010C`. Run single files with the flag set first:
+`NODE_OPTIONS=--openssl-legacy-provider npx jest tests/jasypt-compat.test.ts`.
+
 ---
 
 ## Known Issues & Fixes Applied
@@ -195,6 +207,27 @@ Node 16 is EOL (Sep 2023) and crashes with `--openssl-legacy-provider` flag. CI 
 Publishing is authenticated via **OIDC trusted publishing** — there is **NO `NPM_TOKEN` secret**.
 npm verifies a short-lived, workflow-specific identity issued by GitHub Actions instead of a
 stored token. See the "Publishing / Authentication" section below for the full setup.
+
+### 4. JasyptStrongEncryptor Is NOT Java Jasypt Compatible (verified 19 Nov 2026)
+Tested against real Java Jasypt 1.9.3 (`org.jasypt:jasypt:1.9.3`, Java 25): fails in both directions.
+- NodeCrypt (and the whole family): PBKDF2-HMAC-SHA256 derives 48 bytes, key = [0..32], **IV = [32..48]**,
+  output `base64(salt ‖ ciphertext)`.
+- Java Jasypt `PBEWITHHMACSHA256ANDAES_256`: needs an IV generator, normally `RandomIvGenerator` (with
+  `NoIvGenerator` Jasypt cannot even round-trip itself), output `base64(salt ‖ random IV ‖ ciphertext)`.
+- The key is identical; only the IV placement differs. Inserting the derived IV after the salt makes a NodeCrypt
+  value readable by Java.
+- `JasyptStrongEncryptor.decrypt(javaValue)` does **not** throw: it returns 16 garbage bytes + the plaintext.
+- This is the family layout (documented the same way in rustcrypt's CLAUDE.md). Moving to Java's layout breaks
+  existing ciphertext and must be a coordinated change across all five libraries. A dual-layout decrypt would need
+  an explicit option, because CBC without a MAC cannot reliably auto-detect the layout.
+- Repo tests only round-trip Node→Node, which is why this was never caught. `JasyptEncryptor` now has
+  real Java vectors in `tests/jasypt-compat.test.ts`.
+
+### 5. ConfigLoader Is AES-256-GCM Only, and Silent on Failure
+`ConfigLoader` always uses `Encryptor`, so Jasypt ENC() values (DES or strong) are not decrypted. Any value it
+cannot decrypt, including with a wrong password, is kept as the literal `ENC(...)` with no error. Documented in
+README with a fail-fast `isEncrypted()` check. RustCrypt's `ConfigLoader<E = Encryptor>` is the family precedent if
+this is ever made encryptor-agnostic.
 
 ---
 
@@ -222,6 +255,9 @@ tsup builds two formats:
 - `dist/index.mjs` (ESM)
 - `dist/index.d.ts` (TypeScript declarations)
 - `dist/cli.js` (CLI binary entry point)
+
+`nodecrypt version` prints `__NODECRYPT_VERSION__`, which `tsup.config.ts` fills from `package.json` at build time
+(`define`). Do not hard-code the version in `src/cli.ts`: `npm version` only bumps `package.json`.
 
 ---
 
@@ -272,7 +308,7 @@ Provenance is published automatically (no `--provenance` flag needed).
 | CI | ✅ GitHub Actions (Node 18/20/22, multi-OS) |
 | Release | ✅ Auto-publish on `git tag v*` + push |
 | Auth | ✅ OIDC Trusted Publishing (no token, no 90-day rotation) |
-| Cross-language tested | ✅ Encrypt in Node → Decrypt in Go/Python/PHP/Java |
+| Cross-language tested | ✅ Node ↔ GoCrypt CLI, all three classes, both directions (19 Nov 2026). ✅ Node ↔ Java Jasypt 1.9.3 for `JasyptEncryptor` only; strong mode ❌ (Known Issue 4). Python/PHP/Rust: same layout by code reading, not re-run |
 
 ### How to release a new version:
 ```bash
