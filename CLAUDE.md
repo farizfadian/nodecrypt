@@ -55,7 +55,7 @@ nodecrypt/
 │   ├── jasypt-compat.test.ts   # Jasypt compatibility tests
 │   └── config-loader.test.ts   # Config loader tests
 ├── .github/workflows/
-│   ├── ci.yml              # Test on Node 18/20/22 x Ubuntu/macOS/Windows
+│   ├── ci.yml              # Test on Node 18/20/22/24/26 x Ubuntu/macOS/Windows
 │   └── release.yml         # npm publish on tag push (via OIDC trusted publishing, no token)
 ├── package.json            # nodecrypt-jasypt, engines: >=18
 ├── tsconfig.json           # target: ES2020, strict: true
@@ -201,7 +201,9 @@ DES-CBC has NO integrity check (unlike AES-GCM). Decrypting with wrong password 
 **Fix**: Use try/catch - if it throws, expected; if it doesn't throw, verify result != original.
 
 ### 2. Node 16 Dropped from CI
-Node 16 is EOL (Sep 2023) and crashes with `--openssl-legacy-provider` flag. CI now tests Node 18/20/22 only. `package.json` engines set to `>=18.0.0`.
+Node 16 is EOL (Sep 2023) and crashes with `--openssl-legacy-provider` flag. CI tests Node 18/20/22/24/26. `package.json` engines set to `>=18.0.0`.
+Node 18 and 20 are EOL but stay in the matrix while engines promises `>=18`; dropping them means raising
+`engines`, which is a breaking change (v2.0), so it is Fariz's call.
 
 ### 3. NPM Publish Uses OIDC Trusted Publishing (No Token)
 Publishing is authenticated via **OIDC trusted publishing** — there is **NO `NPM_TOKEN` secret**.
@@ -234,13 +236,16 @@ this is ever made encryptor-agnostic.
 ## CI/CD
 
 ### CI Matrix (ci.yml)
-- **Node versions**: 18, 20, 22
+- **Node versions**: 18, 20 (EOL, kept for `engines >=18`), 22, 24 (Maintenance LTS), 26 (Active LTS)
 - **OS**: ubuntu-latest, windows-latest, macos-latest
-- **Total**: 9 test combinations (all green)
+- **Total**: 15 test combinations; lint and build jobs run on Node 24
+- **Actions**: `checkout@v7`, `setup-node@v7`, `upload-artifact@v7` (all node24 runtime; v4 triggered
+  "Node.js 20 is deprecated" warnings)
 
 ### Release (release.yml)
 - Triggered on `v*` tag push
-- Runs tests on Node 20 + ubuntu
+- Runs tests on Node 24 + ubuntu, then publishes on Node 24 (setup-node's OIDC recipe), dependency cache disabled
+  (`package-manager-cache: false`) to avoid cache poisoning; GitHub Release via `softprops/action-gh-release@v3`
 - Publishes to npm (`npm publish --access public`) via **OIDC trusted publishing**
 - Creates GitHub Release
 - Requires: `id-token: write` permission + npm >= 11.5.1 on the runner (NO token/secret)
@@ -299,9 +304,11 @@ permissions:
 Provenance is published automatically (no `--provenance` flag needed).
 
 ### Gotchas
-- Do not use `npm install -g npm@latest` in release.yml. The release job runs Node 20, and npm 12+ requires
-  Node ^22.22.2 || ^24.15.0, so the step fails with `EBADENGINE` before publishing (this broke the first v1.0.1 run on
-  19 Nov 2026). Keep npm pinned to major 11, or raise the job's Node version and the npm pin together.
+- Do not use `npm install -g npm@latest` in release.yml. On 19 Nov 2026 npm 12 dropped Node 20 (`EBADENGINE`) and
+  broke the first v1.0.1 run, which was then on Node 20. The release job now runs Node 24 and keeps npm pinned to
+  major 11 (>= 11.5.1 for OIDC; supports Node ^20.17 || >=22.9). Change the Node version and the npm pin together.
+- `setup-node@v7` no longer exports the dummy `NODE_AUTH_TOKEN` (`XXXXX-...`). If OIDC fails now, the error may
+  look different from the E404 described below, so check the Trusted Publisher status on npmjs.com first.
 - A tag push runs the release.yml **from the tagged commit**. Re-running a failed release does not pick up a workflow
   fix; the tag must point at a commit that contains the fix.
 - Trusted Publisher fields are case-sensitive and must match the workflow exactly (org, repo, filename).
@@ -329,7 +336,7 @@ Provenance is published automatically (no `--provenance` flag needed).
 |------|--------|
 | Published | ✅ v1.0.1 on npm (1.0.0 on 2024-12-28, 1.0.1 on 2026-11-19) |
 | Install | `npm i nodecrypt-jasypt` |
-| CI | ✅ GitHub Actions (Node 18/20/22, multi-OS) |
+| CI | ✅ GitHub Actions (Node 18/20/22/24/26, multi-OS) |
 | Release | ✅ Auto-publish on `git tag v*` + push |
 | Auth | ✅ OIDC Trusted Publishing (no token, no 90-day rotation) |
 | Cross-language tested | ✅ Node ↔ GoCrypt CLI, all three classes, both directions (19 Nov 2026). ✅ Node ↔ Java Jasypt 1.9.3 for `JasyptEncryptor` only; strong mode ❌ (Known Issue 4). Python/PHP/Rust: same layout by code reading, not re-run |
